@@ -1,0 +1,68 @@
+name: Create YouTube Shorts
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: YouTube video URL (use only videos you own or are allowed to edit)
+        required: true
+        type: string
+      whisper_model:
+        description: Larger models can improve captions but take longer
+        required: true
+        default: base
+        type: choice
+        options:
+          - base
+          - small
+      confirm_rights:
+        description: I own this video or have permission to create clips from it
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  create-shorts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Check out the workflow
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tools/requirements.txt
+
+      - name: Install FFmpeg and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg fonts-dejavu-core
+
+      - name: Install processing tools
+        run: python -m pip install --upgrade pip && python -m pip install -r tools/requirements.txt
+
+      - name: Download, transcribe, select, and render clips
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+          WHISPER_MODEL: ${{ inputs.whisper_model }}
+          RIGHTS_CONFIRMED: ${{ inputs.confirm_rights }}
+        run: |
+          args=(--url "$VIDEO_URL" --model "$WHISPER_MODEL" --output-dir output)
+          if [[ "$RIGHTS_CONFIRMED" == "true" ]]; then
+            args+=(--confirm-rights)
+          fi
+          python tools/clipper.py "${args[@]}"
+
+      - name: Package the clips
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-shorts
+          path: output/shorts_output.zip
+          if-no-files-found: error
+          retention-days: 1
